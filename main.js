@@ -1,5 +1,3 @@
-import './index.css';
-
 let lithiumData = [];
 let worldGeoJson = null;
 
@@ -27,7 +25,7 @@ const THEME = {
 async function bootstrap() {
   try {
     const [csvRes, mapRes] = await Promise.all([
-      fetch('/data.csv'),
+      fetch('./data.csv'),
       fetch('https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json')
     ]);
 
