@@ -1,13 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="es" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <title>Dashboard Exportaciones Litio Argentino</title>
+    
+    <!-- Dependencies for Vanilla JS build -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
   </head>
-  <body>
+  <body class="bg-slate-900 text-slate-50 font-sans min-h-screen">
+    
+    <!-- Loading Screen -->
+    <div id="loader" class="min-h-screen flex items-center justify-center">
+      <div class="animate-spin text-blue-500">
+        <i data-lucide="loader-2" class="w-8 h-8"></i>
+      </div>
+    </div>
+
+    <!-- Application Root will be populated by main.js -->
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+
+    <script type="module" src="/src/main.js"></script>
   </body>
 </html>
-
