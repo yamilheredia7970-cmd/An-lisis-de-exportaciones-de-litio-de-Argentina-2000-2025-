@@ -4,7 +4,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart 
 } from 'recharts';
-import { ArrowUpRight, ArrowDownRight, Activity, DollarSign, TrendingUp, AlertTriangle, ShieldCheck, BarChart3, Globe } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Activity, DollarSign, TrendingUp, AlertTriangle, ShieldCheck, BarChart3, Globe, GitCompare } from 'lucide-react';
 import { cn } from '../lib/utils';
 import MapChart from './MapChart';
 
@@ -38,6 +38,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export default function Dashboard() {
   const [data, setData] = useState<LithiumData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [yearA, setYearA] = useState<number>(0);
+  const [yearB, setYearB] = useState<number>(0);
 
   useEffect(() => {
     const loadData = async () => {
@@ -59,6 +61,10 @@ export default function Dashboard() {
              })).filter(row => row.Año); // Ensure valid year
              
              setData(parsedData);
+             if (parsedData.length >= 2) {
+               setYearA(parsedData[parsedData.length - 1].Año); // Último año
+               setYearB(parsedData[Math.max(0, parsedData.length - 6)].Año); // Hace 5 años
+             }
              setLoading(false);
           }
         });
@@ -71,10 +77,10 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  if (loading) {
+  if (loading || data.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin text-blue-600">
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="animate-spin text-blue-500">
           <Activity size={32} />
         </div>
       </div>
@@ -82,8 +88,12 @@ export default function Dashboard() {
   }
 
   // --- Compute KPIs ---
+  const availableYears = [...data].reverse().map(d => d.Año);
   const latestYear = data[data.length - 1];
   const previousYear = data[data.length - 2];
+  
+  const dataYearA = data.find(d => d.Año === yearA) || latestYear;
+  const dataYearB = data.find(d => d.Año === yearB) || previousYear;
   
   const totalExports = data.reduce((acc, curr) => acc + curr.Exportaciones_FOB, 0);
   const avgExports = totalExports / data.length;
@@ -158,6 +168,74 @@ export default function Dashboard() {
         />
       </section>
 
+      {/* Year Comparison Section */}
+      <section className="bg-slate-800 rounded-xl border border-slate-700 shadow-sm overflow-hidden mb-10">
+        <div className="p-6 border-b border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-2">
+            <GitCompare className="text-purple-400" size={24} />
+            <h2 className="text-lg font-semibold text-slate-50">Comparador Histórico de Exportaciones</h2>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label htmlFor="yearA" className="text-sm text-slate-400 font-medium">Año A:</label>
+              <select 
+                id="yearA"
+                value={yearA} 
+                onChange={(e) => setYearA(Number(e.target.value))}
+                className="bg-slate-900 border border-slate-600 text-slate-50 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none cursor-pointer"
+              >
+                {availableYears.map(y => <option key={`A-${y}`} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="yearB" className="text-sm text-slate-400 font-medium">Año B:</label>
+              <select 
+                id="yearB"
+                value={yearB} 
+                onChange={(e) => setYearB(Number(e.target.value))}
+                className="bg-slate-900 border border-slate-600 text-slate-50 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 outline-none cursor-pointer"
+              >
+                {availableYears.map(y => <option key={`B-${y}`} value={y}>{y}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="p-6 grid grid-cols-1 xl:grid-cols-2 gap-8 bg-slate-900/30">
+          {/* Column A */}
+          <div className="flex flex-col gap-4">
+            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 flex justify-between items-center shadow-inner">
+              <div>
+                <div className="text-slate-400 text-sm uppercase tracking-wide">Desempeño {dataYearA.Año}</div>
+                <div className="text-2xl font-bold text-slate-50">${dataYearA.Exportaciones_FOB.toFixed(1)} M</div>
+              </div>
+              <div className="text-right">
+                <div className="text-slate-400 text-sm uppercase tracking-wide">Participación Total</div>
+                <div className="text-xl font-bold text-emerald-400">{(dataYearA.Participación_total * 100).toFixed(1)}%</div>
+              </div>
+            </div>
+            <div className="h-[350px] w-full bg-[#0f172a] rounded-xl border border-slate-700 overflow-hidden relative shadow-inner">
+              <MapChart totalExportValue={dataYearA.Exportaciones_FOB} tooltipId="map-tooltip-a" />
+            </div>
+          </div>
+          {/* Column B */}
+          <div className="flex flex-col gap-4">
+            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700 flex justify-between items-center shadow-inner">
+              <div>
+                <div className="text-slate-400 text-sm uppercase tracking-wide">Desempeño {dataYearB.Año}</div>
+                <div className="text-2xl font-bold text-slate-50">${dataYearB.Exportaciones_FOB.toFixed(1)} M</div>
+              </div>
+              <div className="text-right">
+                <div className="text-slate-400 text-sm uppercase tracking-wide">Participación Total</div>
+                <div className="text-xl font-bold text-purple-400">{(dataYearB.Participación_total * 100).toFixed(1)}%</div>
+              </div>
+            </div>
+            <div className="h-[350px] w-full bg-[#0f172a] rounded-xl border border-slate-700 overflow-hidden relative shadow-inner">
+              <MapChart totalExportValue={dataYearB.Exportaciones_FOB} tooltipId="map-tooltip-b" />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Main Charts area */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
         {/* Evolution Chart (Large taking 2 columns on lg) */}
@@ -207,17 +285,6 @@ export default function Dashboard() {
               El litio representa el <span className="font-bold text-slate-50">{(latestYear.Participación_total * 100).toFixed(1)}%</span> sobre el total exportado de su categoría, evidenciando un salto significativo desde el {(data[0].Participación_total * 100).toFixed(1)}% en {data[0].Año}.
             </p>
           </div>
-        </div>
-      </section>
-
-      {/* Map Chart Area */}
-      <section className="bg-slate-800 rounded-xl border border-slate-700 shadow-sm overflow-hidden mb-10">
-        <div className="p-6 border-b border-slate-700 flex items-center gap-2">
-          <Globe className="text-blue-400" size={24} />
-          <h2 className="text-lg font-semibold text-slate-50">Mapa Mundial de Destinos de Exportación ({latestYear.Año})</h2>
-        </div>
-        <div className="h-[500px] w-full p-2 bg-[#0f172a]">
-          <MapChart totalExportValue={latestYear.Exportaciones_FOB} />
         </div>
       </section>
 

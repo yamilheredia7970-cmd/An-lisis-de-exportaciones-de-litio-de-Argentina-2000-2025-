@@ -35,9 +35,10 @@ const getDestinationData = (totalValue: number) => {
 
 interface MapChartProps {
   totalExportValue: number;
+  tooltipId?: string;
 }
 
-export default function MapChart({ totalExportValue }: MapChartProps) {
+export default function MapChart({ totalExportValue, tooltipId = "map-tooltip" }: MapChartProps) {
   const [tooltipContent, setTooltipContent] = useState('');
   
   const data = getDestinationData(totalExportValue);
@@ -50,7 +51,7 @@ export default function MapChart({ totalExportValue }: MapChartProps) {
     .range(["#1e293b", "#3b82f6"]);
 
   return (
-    <div className="w-full h-full relative" data-tooltip-id="map-tooltip" data-tooltip-content={tooltipContent}>
+    <div className="w-full h-full relative" data-tooltip-id={tooltipId} data-tooltip-content={tooltipContent}>
       <ComposableMap 
         projection="geoMercator" 
         projectionConfig={{ scale: 130, center: [0, 20] }}
@@ -135,7 +136,7 @@ export default function MapChart({ totalExportValue }: MapChartProps) {
       
       {/* Custom Tooltip Configuration */}
       <Tooltip 
-        id="map-tooltip" 
+        id={tooltipId} 
         place="top" 
         style={{ 
           backgroundColor: "#0f172a", 
