@@ -1,40 +1,547 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es" class="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Dashboard Exportaciones Litio Argentino</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Inteligencia Comercial - Litio Argentino</title>
+
+    <!-- Tailwind CSS v4 CDN -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
     
-    <!-- Failsafe Tailwind v3 CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {}
-        }
+    <style type="text/tailwindcss">
+      @theme {
+        --text-slate-50: #f8fafc;
+        --text-slate-300: #cbd5e1;
+        --text-slate-400: #94a3b8;
+        --bg-slate-900: #0f172a;
+        --bg-slate-800: #1e293b;
+        --border-slate-700: #334155;
       }
-    </script>
-    
-    <!-- Core External Libraries -->
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+    </style>
+
+    <!-- Librerías Externas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-  </head>
-  <body class="bg-slate-900 text-slate-50 min-h-screen font-sans">
-    
-    <!-- Loading Screen -->
-    <div id="loader" class="min-h-screen flex items-center justify-center bg-slate-900 absolute inset-0 z-50">
-      <div class="animate-spin text-blue-500">
-        <i data-lucide="loader-2" class="w-10 h-10"></i>
-      </div>
-      <div class="ml-4 text-blue-400 font-semibold text-lg" id="loading-text">Cargando tablero...</div>
+</head>
+<body class="bg-slate-900 text-slate-50 min-h-screen">
+
+    <!-- Loader -->
+    <div id="loader" class="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center z-50">
+        <div class="animate-spin text-blue-500 mb-4">
+            <i data-lucide="loader-2" class="w-12 h-12"></i>
+        </div>
+        <div class="text-blue-400 font-medium text-lg">Iniciando Motor Analítico y Cargando Datos...</div>
     </div>
 
-    <!-- Application Root -->
-    <div id="root"></div>
+    <!-- Error Screen -->
+    <div id="error-container" class="hidden min-h-screen flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-rose-500 rounded-xl p-8 max-w-2xl text-center shadow-lg">
+            <i data-lucide="alert-octagon" class="w-16 h-16 text-rose-500 mx-auto mb-4"></i>
+            <h2 class="text-2xl font-bold text-rose-500 mb-4">Fallo de Inicialización</h2>
+            <p class="text-slate-300 mb-4" id="error-message"></p>
+            <div class="bg-slate-900 text-left p-4 rounded-lg border border-slate-700 text-rose-400 font-mono text-sm overflow-x-auto" id="error-details"></div>
+            <p class="text-slate-400 mt-6 text-sm">
+                <b>Nota para GitHub Pages:</b> Asegúrate de que tu archivo <code>data.csv</code> esté en el repositorio, exactamente en la raíz principal junto al <code>index.html</code>.
+            </p>
+        </div>
+    </div>
 
-    <!-- Vanilla Javascript (No Módulos para máxima compatibilidad) -->
-    <script src="main.js" defer></script>
-  </body>
+    <!-- Interface -->
+    <div id="app" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 opacity-0 transition-opacity duration-500">
+        <!-- Generado dinámicamente -->
+    </div>
+
+    <script>
+    const THEME = {
+        blue: '#3b82f6',
+        slateDark: '#1e293b',
+        slateLight: '#334155',
+        slateText: '#94a3b8',
+        slateLightText: '#f8fafc',
+        emerald: '#10b981',
+        rose: '#f43f5e',
+        purple: '#c084fc',
+        slate800: '#1e293b'
+    };
+
+    let rawData = [];
+    let latestYearObj = null;
+    let previousYearObj = null;
+    let yearA = 0;
+    let yearB = 0;
+
+    let evChartInstance = null;
+    let ptChartInstance = null;
+    let mapAInstance = null;
+    let mapBInstance = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        lucide.createIcons();
+        initApplication();
+    });
+
+    function displayError(title, detail) {
+        document.getElementById('loader').classList.add('hidden');
+        document.getElementById('app').classList.add('hidden');
+        
+        const errContainer = document.getElementById('error-container');
+        errContainer.classList.remove('hidden');
+        errContainer.classList.add('flex');
+        
+        document.getElementById('error-message').textContent = title;
+        document.getElementById('error-details').textContent = detail;
+        lucide.createIcons();
+    }
+
+    async function initApplication() {
+        try {
+            const mapReq = await fetch('https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json');
+            if (!mapReq.ok) throw new Error(`HTTP Error al obtener el mapa mundial: ${mapReq.status}`);
+            const worldJSON = await mapReq.json();
+            echarts.registerMap('world', worldJSON);
+
+            const csvReq = await fetch('data.csv');
+            if (!csvReq.ok) throw new Error(`HTTP Error al obtener data.csv. Revisa que el archivo exista junto al index.html: ${csvReq.status}`);
+            const csvContent = await csvReq.text();
+
+            if (csvContent.trim().toLowerCase().startsWith('<!doctype html') || csvContent.trim() === '') {
+                throw new Error(`El archivo descargado como 'data.csv' es realmente una página web (HTML) o está vacío.`);
+            }
+
+            Papa.parse(csvContent, {
+                header: true,
+                dynamicTyping: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    rawData = results.data.map(row => ({
+                        Año: parseInt(row['Año']),
+                        Exportaciones_FOB: parseFloat(row['Exportaciones_FOB']) || 0,
+                        Variación_interanual: parseFloat(row['Variación_interanual_eje_derecho']) || 0,
+                        Participación_total: parseFloat(row['Participación_sobre_total_exportado']) || 0
+                    })).filter(r => !isNaN(r.Año));
+
+                    if (rawData.length < 2) {
+                        displayError("Datos Insuficientes", "Se esparaban al menos 2 filas válidas de datos.");
+                        return;
+                    }
+
+                    latestYearObj = rawData[rawData.length - 1];
+                    previousYearObj = rawData[rawData.length - 2];
+                    yearA = latestYearObj.Año;
+                    yearB = rawData[Math.max(0, rawData.length - 6)].Año || rawData[0].Año;
+
+                    buildDOMStructure();
+
+                    // Quitamos loader de la vista antes de dibujar charts para tener layouts definidos
+                    document.getElementById('loader').classList.add('hidden');
+                    const appEl = document.getElementById('app');
+                    appEl.classList.remove('hidden');
+                    
+                    // Esperar al siguiente repaint para que los contenedores tengan width/height validos
+                    requestAnimationFrame(() => {
+                        appEl.classList.remove('opacity-0');
+                        drawVisualizations();
+                    });
+                },
+                error: function(err) {
+                    displayError("Error de Parseo CSV", err.message);
+                }
+            });
+
+        } catch (err) {
+            displayError("Excepción Crítica Global", err.toString());
+        }
+    }
+
+    function I(iconName, classes="w-6 h-6") {
+        return `<i data-lucide="${iconName}" class="${classes}"></i>`;
+    }
+
+    function trendHTML(val) {
+        if (val === undefined || val === null || isNaN(val)) return '';
+        const isP = val > 0;
+        const isN = val < 0;
+        const color = isP ? 'text-emerald-500' : isN ? 'text-rose-500' : 'text-slate-400';
+        const icn = isP ? 'arrow-up-right' : isN ? 'arrow-down-right' : 'minus';
+        
+        return `
+          <span class="text-xs font-semibold flex items-center gap-0.5 ${color}">
+            ${I(icn, 'w-3 h-3')}
+            ${Math.abs(val).toFixed(1)}%
+          </span>
+        `;
+    }
+
+    function buildDOMStructure() {
+        const maxExportObj = rawData.reduce((prev, current) => (prev.Exportaciones_FOB > current.Exportaciones_FOB) ? prev : current);
+        const maxExport = maxExportObj.Exportaciones_FOB;
+        const maxExportYear = maxExportObj.Año;
+        
+        const startVal = rawData[0].Exportaciones_FOB;
+        const endVal = latestYearObj.Exportaciones_FOB;
+        const periods = latestYearObj.Año - rawData[0].Año;
+        const cagr = (periods > 0 && startVal > 0) ? ((Math.pow(endVal / startVal, 1 / periods) - 1) * 100) : 0;
+        
+        const yoyActual = previousYearObj.Exportaciones_FOB > 0 
+            ? ((latestYearObj.Exportaciones_FOB - previousYearObj.Exportaciones_FOB) / previousYearObj.Exportaciones_FOB) * 100 
+            : 0;
+
+        const allYears = [...rawData].reverse().map(d => d.Año);
+        const optionsA = allYears.map(y => `<option value="${y}" ${y === yearA ? 'selected' : ''}>${y}</option>`).join('');
+        const optionsB = allYears.map(y => `<option value="${y}" ${y === yearB ? 'selected' : ''}>${y}</option>`).join('');
+
+        const pInsights = [
+            `Crecimiento histórico consolidado con una tasa anual compuesta (CAGR) del ${cagr.toFixed(1)}% desde ${rawData[0].Año}.`,
+            `El sector alcanzó su máximo histórico en ${maxExportYear} con USD ${maxExport.toFixed(2)} Millones.`,
+            `Resiliencia del sector: la participación del litio sobre el total aumentó a ${(latestYearObj.Participación_total * 100).toFixed(1)}% en ${latestYearObj.Año}.`
+        ];
+        
+        const rInsights = [
+            latestYearObj.Variación_interanual < 0 
+                ? `Desaceleración reciente: contracción del ${Math.abs(yoyActual).toFixed(1)}% en el último año analizado (${latestYearObj.Año}).` 
+                : `Volatilidad latente: a pesar del crecimiento, existen fluctuaciones interanuales significativas a lo largo del período.`,
+            `Concentración de mercado: el sector está supeditado a las fluctuaciones del precio internacional, evidenciando un desacople entre volumen y valor en ciertos años.`,
+            `Riesgo de dependencia: con el litio representando gran parte de las exportaciones mineras, shocks externos pueden impactar fuertemente las divisas.`
+        ];
+
+        const pInsightsHTML = pInsights.map(text => `<li class="flex gap-3"><div class="mt-1 w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div><p class="text-slate-300 text-sm leading-relaxed">${text}</p></li>`).join('');
+        const rInsightsHTML = rInsights.map(text => `<li class="flex gap-3"><div class="mt-1 w-2 h-2 rounded-full bg-rose-500 shrink-0"></div><p class="text-slate-300 text-sm leading-relaxed">${text}</p></li>`).join('');
+
+        const html = `
+            <header class="mb-10">
+                <h1 class="text-3xl font-bold text-slate-50 mb-2">Análisis de Exportaciones de Litio - Argentina</h1>
+                <p class="text-slate-400">Dashboard consultivo e inteligencia de mercado (${rawData[0].Año} - ${latestYearObj.Año}).</p>
+            </header>
+
+            <!-- KPI Cards -->
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col transition-colors">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-slate-400">Exportaciones (${latestYearObj.Año})</h3>
+                        <div class="p-2 bg-slate-900/50 rounded-lg">${I('dollar-sign', 'text-blue-500 w-6 h-6')}</div>
+                    </div>
+                    <div class="mb-2 flex items-baseline gap-2">
+                        <span class="text-3xl font-bold tracking-tight">$${latestYearObj.Exportaciones_FOB.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1})} M</span>
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-slate-700 flex items-center justify-between">
+                        <span class="text-xs text-slate-400">vs año anterior</span>
+                        <div class="flex-shrink-0">${trendHTML(yoyActual)}</div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col transition-colors">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-slate-400">Crecimiento (CAGR)</h3>
+                        <div class="p-2 bg-slate-900/50 rounded-lg">${I('trending-up', 'text-indigo-400 w-6 h-6')}</div>
+                    </div>
+                    <div class="mb-2 flex items-baseline gap-2">
+                        <span class="text-3xl font-bold tracking-tight">${cagr.toFixed(1)}%</span>
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-slate-700">
+                        <span class="text-xs text-slate-400">Promedio anual desde ${rawData[0].Año}</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col transition-colors">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-slate-400">Participación Sectorial</h3>
+                        <div class="p-2 bg-slate-900/50 rounded-lg">${I('pie-chart', 'text-sky-400 w-6 h-6')}</div>
+                    </div>
+                    <div class="mb-2 flex items-baseline gap-2">
+                        <span class="text-3xl font-bold tracking-tight">${(latestYearObj.Participación_total * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-slate-700">
+                        <span class="text-xs text-slate-400">Del total minero (${latestYearObj.Año})</span>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col transition-colors">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-slate-400">Máximo Histórico</h3>
+                        <div class="p-2 bg-slate-900/50 rounded-lg">${I('bar-chart-3', 'text-emerald-400 w-6 h-6')}</div>
+                    </div>
+                    <div class="mb-2 flex items-baseline gap-2">
+                        <span class="text-3xl font-bold tracking-tight">$${maxExport.toFixed(0)} M</span>
+                    </div>
+                    <div class="mt-auto pt-4 border-t border-slate-700">
+                        <span class="text-xs text-slate-400">Logrado en ${maxExportYear}</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Comparador Histórico -->
+            <section class="bg-slate-800 rounded-xl border border-slate-700 shadow-sm overflow-hidden mb-10">
+                <div class="p-6 border-b border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/40">
+                    <div class="flex items-center gap-2">
+                        ${I('git-compare', 'text-purple-400 w-6 h-6')}
+                        <h2 class="text-lg font-semibold text-slate-50">Comparador Geoeconómico</h2>
+                    </div>
+                    <div class="flex items-center gap-6">
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm font-medium text-slate-400">Año 1:</label>
+                            <select id="sel-yearA" class="bg-slate-900 border border-slate-600 rounded-md px-3 py-1.5 text-sm focus:border-blue-500 outline-none cursor-pointer">${optionsA}</select>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm font-medium text-slate-400">Año 2:</label>
+                            <select id="sel-yearB" class="bg-slate-900 border border-slate-600 rounded-md px-3 py-1.5 text-sm focus:border-blue-500 outline-none cursor-pointer">${optionsB}</select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="p-6 grid grid-cols-1 xl:grid-cols-2 gap-8 bg-slate-800/50">
+                    <div class="flex flex-col gap-4">
+                        <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-700 flex justify-between">
+                            <div>
+                                <div class="text-slate-400 text-[11px] font-bold tracking-widest uppercase mb-1">Volumen Exportado <span id="view-yearA" class="text-slate-200 ml-1">-</span></div>
+                                <div class="text-2xl font-bold text-slate-50" id="view-valA">$- M</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-slate-400 text-[11px] font-bold tracking-widest uppercase mb-1">FOB Relativo</div>
+                                <div class="text-xl font-bold text-emerald-400" id="view-partA">-%</div>
+                            </div>
+                        </div>
+                        <div id="map-A" class="h-[400px] w-full bg-[#0b1121] rounded-xl border border-slate-700"></div>
+                    </div>
+                    
+                    <div class="flex flex-col gap-4">
+                        <div class="bg-slate-900/60 p-5 rounded-xl border border-slate-700 flex justify-between">
+                            <div>
+                                <div class="text-slate-400 text-[11px] font-bold tracking-widest uppercase mb-1">Volumen Exportado <span id="view-yearB" class="text-slate-200 ml-1">-</span></div>
+                                <div class="text-2xl font-bold text-slate-50" id="view-valB">$- M</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-slate-400 text-[11px] font-bold tracking-widest uppercase mb-1">FOB Relativo</div>
+                                <div class="text-xl font-bold text-purple-400" id="view-partB">-%</div>
+                            </div>
+                        </div>
+                        <div id="map-B" class="h-[400px] w-full bg-[#0b1121] rounded-xl border border-slate-700"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Charts Centrales -->
+            <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm lg:col-span-2">
+                    <h2 class="text-lg font-semibold text-slate-50 mb-6">Histórico de Volumen y Crecimiento</h2>
+                    <div id="chart-evolution" class="w-full h-[400px]"></div>
+                </div>
+                
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 flex flex-col shadow-sm">
+                    <h2 class="text-lg font-semibold text-slate-50 mb-6">Composición Minera (${latestYearObj.Año})</h2>
+                    <div id="chart-pie" class="w-full flex-grow min-h-[300px]"></div>
+                    <div class="mt-4 px-2">
+                        <p class="text-sm text-slate-400 text-center leading-relaxed">
+                            Actualmente, el litio equivale al <span class="font-bold text-slate-100">${(latestYearObj.Participación_total * 100).toFixed(1)}%</span> del total de exportaciones del segmento minero nacional.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Insights -->
+            <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm">
+                    <div class="flex items-center gap-3 mb-6 border-b border-slate-700 pb-4">
+                        <div class="bg-emerald-500/10 p-2 rounded-lg">
+                            ${I('shield-check', 'text-emerald-500 w-5 h-5')}
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-50">Vectores de Crecimiento Estratégico</h3>
+                    </div>
+                    <ul class="space-y-4" id="insight-pos">
+                        ${pInsightsHTML}
+                    </ul>
+                </div>
+                
+                <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm">
+                    <div class="flex items-center gap-3 mb-6 border-b border-slate-700 pb-4">
+                        <div class="bg-rose-500/10 p-2 rounded-lg">
+                            ${I('alert-triangle', 'text-rose-500 w-5 h-5')}
+                        </div>
+                        <h3 class="text-lg font-bold text-slate-50">Riesgos y Fragilidades</h3>
+                    </div>
+                    <ul class="space-y-4" id="insight-neg">
+                        ${rInsightsHTML}
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Tabla -->
+            <section class="bg-slate-800 rounded-xl border border-slate-700 mb-10 overflow-hidden shadow-sm">
+                <div class="px-6 py-5 border-b border-slate-700 bg-slate-900/40">
+                    <div class="flex items-center gap-2">
+                        ${I('database', 'text-blue-500 w-5 h-5')}
+                        <h2 class="text-lg font-semibold text-slate-50">Matriz de Datos CSV</h2>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-[11px] text-slate-400 uppercase bg-slate-900 border-b border-slate-700 font-bold tracking-wider">
+                            <tr>
+                                <th class="px-6 py-4">Año</th>
+                                <th class="px-6 py-4">FOB Exportado (M USD)</th>
+                                <th class="px-6 py-4">Variación Eje Derecho</th>
+                                <th class="px-6 py-4">Peso s/ Total Exportado</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-700/80" id="table-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Analisis -->
+            <footer class="bg-slate-800 border border-slate-700 shadow-sm rounded-xl p-8 mb-8 text-slate-50">
+                <div class="flex items-center gap-3 mb-6">
+                    ${I('book-open', 'text-indigo-400 w-6 h-6')}
+                    <h2 class="text-2xl font-bold">Análisis Corporativo General</h2>
+                </div>
+                <div class="space-y-5 text-slate-300 leading-relaxed text-base">
+                    <p>
+                        El examen exhaustivo del histórico disponible revela que la explotación litífera de la región se ha robustecido de manera sistémica, apalancando la capacidad exportadora del Estado. Alcanzando los <strong class="text-slate-100 font-semibold">USD ${maxExport.toFixed(0)} Millones</strong>, atestigua cómo la fuerte absorción de demanda internacional ha impactado en los resultados balancísticos extractivos nacionales.
+                    </p>
+                    <p>
+                        No obstante, la alta variabilidad interanual observada denota una vulnerabilidad inherente vinculada fuertemente al vaivén orgánico e internacional de los Commodities. Resulta un pilar estratégico a futuro apalancar en cadena el valor agregado de los yacimientos, y buscar la diversificación de partners comerciales internacionales, disminuyendo así el riesgo macroeconómico directo ante un hipotético mercado global sobre-ofertado.
+                    </p>
+                </div>
+            </footer>
+        `;
+
+        document.getElementById('app').innerHTML = html;
+        
+        const tb = document.getElementById('table-body');
+        const tableHTML = [...rawData].reverse().map(r => {
+            const isP = r.Variación_interanual > 0;
+            const isN = r.Variación_interanual < 0;
+            const bg = isP ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : isN ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-slate-700 text-slate-300 border border-slate-600';
+            const iStr = isP ? I('arrow-up-right', 'w-3 h-3') : isN ? I('arrow-down-right', 'w-3 h-3') : '';
+            
+            return `
+                <tr class="hover:bg-slate-700/40 transition-colors">
+                    <td class="px-6 py-4 font-bold text-slate-300">${r.Año}</td>
+                    <td class="px-6 py-4 tracking-wide font-mono text-slate-200 font-medium">$ ${r.Exportaciones_FOB.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide uppercase ${bg}">
+                            ${iStr} ${(r.Variación_interanual * 100).toFixed(1)}%
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-slate-300 font-medium">${(r.Participación_total * 100).toFixed(2)}%</td>
+                </tr>
+            `;
+        }).join('');
+        tb.innerHTML = tableHTML;
+
+        lucide.createIcons();
+        
+        document.getElementById('sel-yearA').addEventListener('change', e => {
+            yearA = parseInt(e.target.value);
+            updateMapVisuals();
+        });
+        document.getElementById('sel-yearB').addEventListener('change', e => {
+            yearB = parseInt(e.target.value);
+            updateMapVisuals();
+        });
+    }
+
+    function drawVisualizations() {
+        if (!document.getElementById('chart-evolution')) return; // Safety check
+
+        evChartInstance = echarts.init(document.getElementById('chart-evolution'));
+        const years = rawData.map(d => d.Año);
+        const fob = rawData.map(d => d.Exportaciones_FOB);
+        const vari = rawData.map(d => d.Variación_interanual * 100);
+
+        evChartInstance.setOption({
+            tooltip: { trigger: 'axis', backgroundColor: THEME.slateDark, borderColor: THEME.slateLight, textStyle: { color: THEME.slateLightText }, axisPointer: { type: 'cross', crossStyle: { color: THEME.slateText }} },
+            legend: { data: ['FOB Exportado (M USD)', 'Variación Interanual (%)'], textStyle: { color: THEME.slateText }, bottom: 0, icon: 'circle' },
+            grid: { left: '2%', right: '2%', bottom: '12%', top: '10%', containLabel: true },
+            xAxis: [{ type: 'category', data: years, axisLabel: { color: THEME.slateText, margin: 12 }, axisLine: { lineStyle: { color: THEME.slateLight } }, axisTick: { show: false } }],
+            yAxis: [
+                { type: 'value', axisLabel: { formatter: '${value}M', color: THEME.slateText }, splitLine: { lineStyle: { color: THEME.slateLight, type: 'dashed' } } },
+                { type: 'value', axisLabel: { formatter: '{value}%', color: THEME.slateText }, splitLine: { show: false } }
+            ],
+            series: [
+                { name: 'Variación Interanual (%)', type: 'bar', yAxisIndex: 1, itemStyle: { color: '#60a5fa', borderRadius: [4, 4, 0, 0] }, data: vari },
+                { name: 'FOB Exportado (M USD)', type: 'line', itemStyle: { color: THEME.blue }, lineStyle: { width: 3, shadowColor: 'rgba(59,130,246,0.4)', shadowBlur: 10 }, symbol: 'circle', symbolSize: 8, data: fob }
+            ]
+        });
+
+        ptChartInstance = echarts.init(document.getElementById('chart-pie'));
+        const litioM = latestYearObj.Exportaciones_FOB;
+        const totalMineriaEstimado = litioM / latestYearObj.Participación_total;
+        const restoMineria = totalMineriaEstimado - litioM;
+
+        ptChartInstance.setOption({
+            tooltip: { trigger: 'item', formatter: '{b}: ${c} M ({d}%)', backgroundColor: THEME.slateDark, borderColor: THEME.slateLight, textStyle: { color: THEME.slateLightText } },
+            legend: { bottom: 0, textStyle: { color: THEME.slateText }, icon: 'circle' },
+            series: [{
+                type: 'pie', radius: ['45%', '75%'], avoidLabelOverlap: false, itemStyle: { borderColor: THEME.slate800, borderWidth: 3 }, label: { show: false },
+                data: [
+                    { value: parseFloat(litioM.toFixed(1)), name: 'Litio', itemStyle: { color: THEME.emerald } },
+                    { value: parseFloat(restoMineria.toFixed(1)), name: 'Otros Envios Mineros', itemStyle: { color: THEME.slateLight } }
+                ]
+            }]
+        });
+
+        updateMapVisuals();
+
+        window.addEventListener('resize', () => {
+            if (evChartInstance) evChartInstance.resize();
+            if (ptChartInstance) ptChartInstance.resize();
+            if (mapAInstance) mapAInstance.resize();
+            if (mapBInstance) mapBInstance.resize();
+        });
+    }
+
+    function updateMapVisuals() {
+        const dataA = rawData.find(d => d.Año === yearA) || rawData[rawData.length - 1];
+        const dataB = rawData.find(d => d.Año === yearB) || rawData[rawData.length - 1];
+
+        document.getElementById('view-yearA').textContent = dataA.Año;
+        document.getElementById('view-valA').textContent = `$${dataA.Exportaciones_FOB.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1})} M`;
+        document.getElementById('view-partA').textContent = `${(dataA.Participación_total * 100).toFixed(1)}%`;
+
+        document.getElementById('view-yearB').textContent = dataB.Año;
+        document.getElementById('view-valB').textContent = `$${dataB.Exportaciones_FOB.toLocaleString('en-US', {minimumFractionDigits: 1, maximumFractionDigits: 1})} M`;
+        document.getElementById('view-partB').textContent = `${(dataB.Participación_total * 100).toFixed(1)}%`;
+
+        if (!mapAInstance) mapAInstance = echarts.init(document.getElementById('map-A'));
+        if (!mapBInstance) mapBInstance = echarts.init(document.getElementById('map-B'));
+
+        // Simulación de proporción de peso internacional
+        const buildData = (totalValue) => [
+            { name: 'China', value: totalValue * 0.42 },
+            { name: 'Japan', value: totalValue * 0.24 },
+            { name: 'Korea', value: totalValue * 0.14 },
+            { name: 'United States', value: totalValue * 0.10 },
+            { name: 'Germany', value: totalValue * 0.05 },
+            { name: 'France', value: totalValue * 0.03 },
+            { name: 'Belgium', value: totalValue * 0.02 },
+            { name: 'Argentina', value: 0 } 
+        ];
+
+        const cfg = (d, color) => ({
+            tooltip: {
+                trigger: 'item', backgroundColor: THEME.slateDark, borderColor: THEME.slateLight, textStyle: { color: THEME.slateLightText, fontSize: 13 },
+                formatter: p => p.name === 'Argentina' ? '<b>Argentina</b><br/><span style="color:#94a3b8">Origen</span>' : `<b style="color: ${color}">${p.name||''}</b><br/>$${(p.value||0).toFixed(1)} Millones`
+            },
+            visualMap: {
+                min: 0, max: Math.max(...d.map(x=>x.value)), realtime: false, calculable: true,
+                inRange: { color: [THEME.slateDark, color] }, textStyle: { color: THEME.slateText, fontSize: 11 }, left: 15, bottom: 15, itemHeight: 80, itemWidth: 12
+            },
+            series: [{
+                type: 'map', map: 'world', roam: true, scaleLimit: { min: 1, max: 8 }, label: { show: false },
+                itemStyle: { borderColor: '#020617', borderWidth: 0.5, areaColor: THEME.slateDark },
+                emphasis: { label: { show: false }, itemStyle: { areaColor: '#f8fafc' } },
+                data: d.map(item => item.name === 'Argentina' ? { name: item.name, value: item.value, itemStyle: { areaColor: THEME.blue } } : item)
+            }]
+        });
+
+        mapAInstance.setOption(cfg(buildData(dataA.Exportaciones_FOB), THEME.emerald));
+        mapBInstance.setOption(cfg(buildData(dataB.Exportaciones_FOB), THEME.purple));
+    }
+    </script>
+</body>
 </html>
