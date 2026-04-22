@@ -5,22 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard Inteligencia Comercial - Litio Argentino</title>
 
-    <!-- Tailwind CSS v4 CDN -->
-    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
-    
-    <style type="text/tailwindcss">
-      @theme {
-        --text-slate-50: #f8fafc;
-        --text-slate-300: #cbd5e1;
-        --text-slate-400: #94a3b8;
-        --bg-slate-900: #0f172a;
-        --bg-slate-800: #1e293b;
-        --border-slate-700: #334155;
-      }
-      body {
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      }
-    </style>
+    <!-- Tailwind CSS v3 Clásico -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {}
+            }
+        }
+    </script>
 
     <!-- Librerías Externas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -80,7 +74,7 @@
     let mapBInstance = null;
 
     document.addEventListener('DOMContentLoaded', () => {
-        lucide.createIcons();
+        if (typeof window.lucide !== 'undefined') window.lucide.createIcons();
         initApplication();
     });
 
@@ -94,7 +88,7 @@
         
         document.getElementById('error-message').textContent = title;
         document.getElementById('error-details').textContent = detail;
-        lucide.createIcons();
+        if (typeof window.lucide !== 'undefined') window.lucide.createIcons();
     }
 
     async function initApplication() {
@@ -114,38 +108,58 @@
 
             Papa.parse(csvContent, {
                 header: true,
-                dynamicTyping: true,
+                dynamicTyping: false, // Forzar parsing manual seguro
                 skipEmptyLines: true,
                 complete: function(results) {
-                    rawData = results.data.map(row => ({
-                        Año: parseInt(row['Año']),
-                        Exportaciones_FOB: parseFloat(row['Exportaciones_FOB']) || 0,
-                        Variación_interanual: parseFloat(row['Variación_interanual_eje_derecho']) || 0,
-                        Participación_total: parseFloat(row['Participación_sobre_total_exportado']) || 0
-                    })).filter(r => !isNaN(r.Año));
+                    try {
+                        const sanitizeNum = (val) => {
+                            if (!val) return 0;
+                            if (typeof val === 'number') return val;
+                            return parseFloat(String(val).replace(/,/g, '.')) || 0;
+                        };
 
-                    if (rawData.length < 2) {
-                        displayError("Datos Insuficientes", "Se esparaban al menos 2 filas válidas de datos.");
-                        return;
+                        rawData = results.data.map(row => {
+                            // Búsqueda difusa de columnas para prevenir errores de BOM / Encoding
+                            const keys = Object.keys(row);
+                            const kAnio = keys.find(k => k.includes('o') || k.includes('O')) || 'Año';
+                            const kFOB = keys.find(k => k.includes('FOB') || k.includes('fob')) || 'Exportaciones_FOB';
+                            const kVar = keys.find(k => k.includes('derecho') || k.includes('interanual')) || 'Variación_interanual_eje_derecho';
+                            const kPart = keys.find(k => k.includes('total') || k.includes('Participaci')) || 'Participación_sobre_total_exportado';
+                            
+                            return {
+                                Año: parseInt(row[kAnio]),
+                                Exportaciones_FOB: sanitizeNum(row[kFOB]),
+                                Variación_interanual: sanitizeNum(row[kVar]),
+                                Participación_total: sanitizeNum(row[kPart])
+                            };
+                        }).filter(r => !isNaN(r.Año));
+
+                        if (rawData.length < 2) {
+                            displayError("Datos Insuficientes", "Se esparaban al menos 2 filas válidas de datos (Años).");
+                            return;
+                        }
+
+                        rawData.sort((a,b) => a.Año - b.Año); // Asegurar orden cronologico
+
+                        latestYearObj = rawData[rawData.length - 1];
+                        previousYearObj = rawData[rawData.length - 2];
+                        yearA = latestYearObj.Año;
+                        yearB = rawData[Math.max(0, rawData.length - 6)].Año || rawData[0].Año;
+
+                        buildDOMStructure();
+
+                        document.getElementById('loader').classList.add('hidden');
+                        const appEl = document.getElementById('app');
+                        appEl.classList.remove('hidden');
+                        
+                        setTimeout(() => {
+                            appEl.classList.remove('opacity-0');
+                            drawVisualizations();
+                        }, 100);
+
+                    } catch (e) {
+                         displayError("Error de Lógica Interna", e.toString());
                     }
-
-                    latestYearObj = rawData[rawData.length - 1];
-                    previousYearObj = rawData[rawData.length - 2];
-                    yearA = latestYearObj.Año;
-                    yearB = rawData[Math.max(0, rawData.length - 6)].Año || rawData[0].Año;
-
-                    buildDOMStructure();
-
-                    // Quitamos loader de la vista antes de dibujar charts para tener layouts definidos
-                    document.getElementById('loader').classList.add('hidden');
-                    const appEl = document.getElementById('app');
-                    appEl.classList.remove('hidden');
-                    
-                    // Esperar al siguiente repaint para que los contenedores tengan width/height validos
-                    requestAnimationFrame(() => {
-                        appEl.classList.remove('opacity-0');
-                        drawVisualizations();
-                    });
                 },
                 error: function(err) {
                     displayError("Error de Parseo CSV", err.message);
@@ -433,7 +447,7 @@
         }).join('');
         tb.innerHTML = tableHTML;
 
-        lucide.createIcons();
+        if (typeof window.lucide !== 'undefined') window.lucide.createIcons();
         
         document.getElementById('sel-yearA').addEventListener('change', e => {
             yearA = parseInt(e.target.value);
@@ -470,8 +484,9 @@
 
         ptChartInstance = echarts.init(document.getElementById('chart-pie'));
         const litioM = latestYearObj.Exportaciones_FOB;
-        const totalMineriaEstimado = litioM / latestYearObj.Participación_total;
-        const restoMineria = totalMineriaEstimado - litioM;
+        const partGlobal = latestYearObj.Participación_total > 0 ? latestYearObj.Participación_total : 1;
+        const totalMineriaEstimado = litioM / partGlobal;
+        const restoMineria = Math.max(0, totalMineriaEstimado - litioM);
 
         ptChartInstance.setOption({
             tooltip: { trigger: 'item', formatter: '{b}: ${c} M ({d}%)', backgroundColor: THEME.slateDark, borderColor: THEME.slateLight, textStyle: { color: THEME.slateLightText } },
