@@ -24,41 +24,76 @@ const THEME = {
 
 async function bootstrap() {
   try {
-    const [csvRes, mapRes] = await Promise.all([
-      fetch('./data.csv'),
-      fetch('https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json')
-    ]);
-
-    const csvText = await csvRes.text();
+    const mapRes = await fetch('https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json');
+    if (!mapRes.ok) throw new Error("No se pudo cargar el mapa base.");
     worldGeoJson = await mapRes.json();
     echarts.registerMap('world', worldGeoJson);
+
+    const csvRes = await fetch('data.csv');
+    if (!csvRes.ok) throw new Error("No se pudo cargar data.csv. El archivo no se encontró (HTTP " + csvRes.status + ").");
+    const csvText = await csvRes.text();
+    
+    if (csvText.trim().startsWith('<') || csvText.trim() === '') {
+      throw new Error("El archivo data.csv parece ser una página HTML de Github (404) o está vacío. Asegúrate de que tu archivo CSV se llame exactamente 'data.csv' en minúsculas y esté en la rama principal.");
+    }
 
     Papa.parse(csvText, {
       header: true,
       dynamicTyping: true,
       skipEmptyLines: true,
       complete: (results) => {
-        lithiumData = results.data.map(row => ({
-          Año: row['Año'],
-          Exportaciones_FOB: row['Exportaciones_FOB'] || 0,
-          Variación_interanual: row['Variación_interanual_eje_derecho'] || 0,
-          Participación_total: row['Participación_sobre_total_exportado'] || 0
-        })).filter(r => r.Año);
+        try {
+          lithiumData = results.data.map(row => ({
+            Año: row['Año'],
+            Exportaciones_FOB: row['Exportaciones_FOB'] || 0,
+            Variación_interanual: row['Variación_interanual_eje_derecho'] || 0,
+            Participación_total: row['Participación_sobre_total_exportado'] || 0
+          })).filter(r => r.Año);
 
-        if (lithiumData.length >= 2) {
+          if (!lithiumData || lithiumData.length < 2) {
+            throw new Error("El archivo data.csv no contiene datos válidos o carece de las columnas esperadas ('Año', 'Exportaciones_FOB', etc).");
+          }
+
           latestYear = lithiumData[lithiumData.length - 1];
           previousYear = lithiumData[lithiumData.length - 2];
           yearA = latestYear.Año;
           yearB = lithiumData[Math.max(0, lithiumData.length - 6)].Año;
-        }
 
-        document.getElementById('loader').classList.add('hidden');
-        renderDashboard();
+          const loader = document.getElementById('loader');
+          if(loader) loader.classList.add('hidden');
+          
+          renderDashboard();
+        } catch (innerErr) {
+          showError(innerErr);
+        }
+      },
+      error: (err) => {
+        showError(err);
       }
     });
+
   } catch (error) {
-    console.error("Error al cargar datos", error);
-    document.getElementById('root').innerHTML = '<div class="p-8 text-rose-500">Error inicializando la aplicación. Verifica la conexión o los archivos de datos.</div>';
+    showError(error);
+  }
+}
+
+function showError(err) {
+  console.error("Critical Error:", err);
+  const loader = document.getElementById('loader');
+  if(loader) loader.classList.add('hidden');
+  
+  const root = document.getElementById('root');
+  if(root) {
+    root.innerHTML = `
+      <div style="padding: 2rem; border-radius: 8px; background-color: #1e293b; border: 1px solid #ef4444; margin: 2rem auto; max-width: 600px; text-align: center; color: white; font-family: sans-serif;">
+        <h2 style="color: #f87171; font-size: 1.5rem; margin-bottom: 1rem;">⚠️ Error de Ejecución</h2>
+        <p style="color: #cbd5e1; margin-bottom: 2rem;">No se pudo inicializar el panel porque ocurrió un fallo al leer los datos.</p>
+        <div style="background-color: #0f172a; padding: 1rem; border-radius: 6px; color: #f87171; font-family: monospace; font-size: 0.875rem; text-align: left; word-break: break-all;">
+          ${err.message || err}
+        </div>
+        <p style="color: #94a3b8; font-size: 0.875rem; margin-top: 2rem;">Asegúrate de que tus modificaciones en GitHub Pages terminaron de construirse.</p>
+      </div>
+    `;
   }
 }
 
@@ -534,5 +569,10 @@ function populateTable() {
   lucide.createIcons(); // Reactivate icons drawn dynamically in table
 }
 
-// Start sequence
-bootstrap();
+// Start sequence safely
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+    bootstrap();
+});

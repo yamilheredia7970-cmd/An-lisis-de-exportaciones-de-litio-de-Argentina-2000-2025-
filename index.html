@@ -5,39 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dashboard Exportaciones Litio Argentino</title>
     
-    <!-- Dependencies for Vanilla JS build -->
-    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <!-- Failsafe Tailwind v3 CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {}
+        }
+      }
+    </script>
+    
+    <!-- Core External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <style type="text/tailwindcss">
-      @theme {
-        --text-slate-50: #f8fafc;
-        --text-slate-300: #cbd5e1;
-        --text-slate-400: #94a3b8;
-        --bg-slate-900: #0f172a;
-        --bg-slate-800: #1e293b;
-        --border-slate-700: #334155;
-      }
-      body {
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      }
-      /* Ensure tooltips or maps sizing behave correctly if needed */
-    </style>
   </head>
-  <body class="bg-slate-900 text-slate-50 min-h-screen">
+  <body class="bg-slate-900 text-slate-50 min-h-screen font-sans">
     
     <!-- Loading Screen -->
-    <div id="loader" class="min-h-screen flex items-center justify-center">
+    <div id="loader" class="min-h-screen flex items-center justify-center bg-slate-900 absolute inset-0 z-50">
       <div class="animate-spin text-blue-500">
-        <i data-lucide="loader-2" class="w-8 h-8"></i>
+        <i data-lucide="loader-2" class="w-10 h-10"></i>
       </div>
+      <div class="ml-4 text-blue-400 font-semibold text-lg" id="loading-text">Cargando tablero...</div>
     </div>
 
-    <!-- Application Root will be populated by main.js -->
+    <!-- Application Root -->
     <div id="root"></div>
 
-    <script type="module" src="./main.js"></script>
+    <!-- Vanilla Javascript (No Módulos para máxima compatibilidad) -->
+    <script src="main.js" defer></script>
   </body>
 </html>
